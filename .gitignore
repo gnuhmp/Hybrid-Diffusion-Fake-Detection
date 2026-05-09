@@ -4,12 +4,13 @@ env/
 .env
 
 # Data và outputs
-data/
 outputs/
 *.npz
 *.npy
 *.pt
 *.parquet
+*.txt
+
 
 # Python cache
 __pycache__/
