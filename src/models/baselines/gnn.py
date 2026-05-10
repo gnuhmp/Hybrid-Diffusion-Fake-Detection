@@ -11,8 +11,12 @@ from torch.utils.data import random_split
 from torch_geometric.data import DataLoader, DataListLoader
 
 
-from utils.data_loader import *
-from utils.eval_helper import *
+try:
+	from src.utils.data_loader import *
+	from src.utils.eval_helper import *
+except ImportError:
+	from utils.data_loader import *
+	from utils.eval_helper import *
 
 
 """

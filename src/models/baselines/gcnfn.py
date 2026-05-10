@@ -31,7 +31,6 @@ Link: https://arxiv.org/pdf/2007.03316.pdf
 """
 
 class GNN(torch.nn.Module):
-    # Giữ nguyên cấu trúc GNN của tác giả
     def __init__(self, in_channels, hidden_channels, out_channels,
                  normalize=False, lin=True):
         super(GNN, self).__init__()
@@ -84,20 +83,23 @@ class GCNFN(torch.nn.Module):
         self.lin2 = torch.nn.Linear(64, num_classes)
 
     def forward(self, data):
-       
-        x, edge_index, batch = data.x, data.edge_index, data.batch
-        dense_x, mask = to_dense_batch(x, batch)
-        adj = to_dense_adj(edge_index, batch)
-
-        #
+        # Handle both sparse PyG Data objects and dense tensors
+        if hasattr(data, 'x'):
+            # Sparse input from PyG DataLoader - convert to dense format
+            x, edge_index, batch = data.x, data.edge_index, data.batch
+            dense_x, mask = to_dense_batch(x, batch)
+            adj = to_dense_adj(edge_index, batch)
+        else:
+            # Already dense input
+            dense_x, adj, mask = data
+        
+        # Apply GNN layers with DiffPool
         s = self.gnn1_pool(dense_x, adj, mask)
         x_emb = self.gnn1_embed(dense_x, adj, mask)
-
         x_emb, adj, l1, e1 = dense_diff_pool(x_emb, adj, s, mask)
 
         s = self.gnn2_pool(x_emb, adj)
         x_emb = self.gnn2_embed(x_emb, adj)
-
         x_emb, adj, l2, e2 = dense_diff_pool(x_emb, adj, s)
 
         x_emb = self.gnn3_embed(x_emb, adj)

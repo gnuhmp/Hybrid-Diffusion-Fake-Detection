@@ -158,44 +158,42 @@ if __name__ == '__main__':
 	parser.add_argument('--epochs', type=int, default=60, help='maximum number of epochs')
 	parser.add_argument('--feature', type=str, default='profile', help='feature type, [profile, spacy, bert, content]')
 
-args = parser.parse_args()
-torch.manual_seed(args.seed)
-if torch.cuda.is_available():
-	torch.cuda.manual_seed(args.seed)
+	args = parser.parse_args()
+	torch.manual_seed(args.seed)
+	if torch.cuda.is_available():
+		torch.cuda.manual_seed(args.seed)
 
-if args.dataset == 'politifact':
-	max_nodes = 500
-else:
-	max_nodes = 200 
+	if args.dataset == 'politifact':
+		max_nodes = 500
+	else:
+		max_nodes = 200
 
-
-dataset = FNNDataset(root='data', feature=args.feature, empty=False, name=args.dataset,
+	dataset = FNNDataset(root='data', feature=args.feature, empty=False, name=args.dataset,
 					 transform=T.ToDense(max_nodes), pre_transform=ToUndirected())
 
-print(args)
+	print(args)
 
-num_training = int(len(dataset) * 0.2)
-num_val = int(len(dataset) * 0.1)
-num_test = len(dataset) - (num_training + num_val)
-training_set, validation_set, test_set = random_split(dataset, [num_training, num_val, num_test])
+	num_training = int(len(dataset) * 0.2)
+	num_val = int(len(dataset) * 0.1)
+	num_test = len(dataset) - (num_training + num_val)
+	training_set, validation_set, test_set = random_split(dataset, [num_training, num_val, num_test])
 
-train_loader = DenseDataLoader(training_set, batch_size=args.batch_size, shuffle=True)
-val_loader = DenseDataLoader(validation_set, batch_size=args.batch_size, shuffle=False)
-test_loader = DenseDataLoader(test_set, batch_size=args.batch_size, shuffle=False)
+	train_loader = DenseDataLoader(training_set, batch_size=args.batch_size, shuffle=True)
+	val_loader = DenseDataLoader(validation_set, batch_size=args.batch_size, shuffle=False)
+	test_loader = DenseDataLoader(test_set, batch_size=args.batch_size, shuffle=False)
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = GNNCLNet(in_channels=dataset.num_features, num_classes=dataset.num_classes).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+	model = GNNCLNet(in_channels=dataset.num_features, num_classes=dataset.num_classes).to(device)
+	optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
+	for epoch in tqdm(range(args.epochs)):
+		[acc_train, _, _, _, recall_train, auc_train, _], loss_train = train()
+		[acc_val, _, _, _, recall_val, auc_val, _], loss_val = test(val_loader)
+		print(f'loss_train: {loss_train:.4f}, acc_train: {acc_train:.4f},'
+			  f' recall_train: {recall_train:.4f}, auc_train: {auc_train:.4f},'
+			  f' loss_val: {loss_val:.4f}, acc_val: {acc_val:.4f},'
+			  f' recall_val: {recall_val:.4f}, auc_val: {auc_val:.4f}')
 
-for epoch in tqdm(range(args.epochs)):
-	[acc_train, _, _, _, recall_train, auc_train, _], loss_train = train()
-	[acc_val, _, _, _, recall_val, auc_val, _], loss_val = test(val_loader)
-	print(f'loss_train: {loss_train:.4f}, acc_train: {acc_train:.4f},'
-		  f' recall_train: {recall_train:.4f}, auc_train: {auc_train:.4f},'
-		  f' loss_val: {loss_val:.4f}, acc_val: {acc_val:.4f},'
-		  f' recall_val: {recall_val:.4f}, auc_val: {auc_val:.4f}')
-
-[acc, f1_macro, f1_micro, precision, recall, auc, ap], test_loss = test(test_loader)
-print(f'Test set results: acc: {acc:.4f}, f1_macro: {f1_macro:.4f}, f1_micro: {f1_micro:.4f}, '
-	  f'precision: {precision:.4f}, recall: {recall:.4f}, auc: {auc:.4f}, ap: {ap:.4f}')
+	[acc, f1_macro, f1_micro, precision, recall, auc, ap], test_loss = test(test_loader)
+	print(f'Test set results: acc: {acc:.4f}, f1_macro: {f1_macro:.4f}, f1_micro: {f1_micro:.4f}, '
+		  f'precision: {precision:.4f}, recall: {recall:.4f}, auc: {auc:.4f}, ap: {ap:.4f}')
