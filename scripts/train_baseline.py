@@ -21,14 +21,32 @@ from src.data.dataset_builder import load_raw_parquet_data, create_pyg_graphs_fr
 from src.training.trainer import train_full_pipeline, build_optimizer
 from src.training.losses import FocalLoss
 
-# IMPORTANT: You need to import the baseline models you copied into src/models/baselines
+# IMPORTANT: Import baselines independently so one missing optional dependency
+# does not break all model registrations.
+BiGCN = None
+GCNFN = None
+GNN = None
+GNNCLNet = None
+
 try:
     from src.models.baselines.bigcn import BiGCN
+except Exception as exc:
+    print(f"Warning: BiGCN import failed: {exc}")
+
+try:
     from src.models.baselines.gcnfn import GCNFN
+except Exception as exc:
+    print(f"Warning: GCNFN import failed: {exc}")
+
+try:
     from src.models.baselines.gnn import Model as GNN
+except Exception as exc:
+    print(f"Warning: GNN/GAT/SAGE/GCN import failed: {exc}")
+
+try:
     from src.models.baselines.gnncl import GNNCLNet
-except ImportError:
-    print("Warning: Baseline models not fully imported. Ensure src/models/baselines contains the UPFD files.")
+except Exception as exc:
+    print(f"Warning: GNNCL import failed: {exc}")
 
 def main():
     parser = argparse.ArgumentParser(description='Train UPFD Baseline Models')
@@ -92,12 +110,21 @@ def main():
     # 3. Initialize chosen Baseline Model
     print(f"Initializing {args.model.upper()}...")
     if args.model == 'bigcn':
+        if BiGCN is None:
+            raise ImportError("BiGCN is unavailable. Check src.models.baselines.bigcn dependencies.")
         model = BiGCN(num_features=text_dim, hidden_dim=args.hidden_dim, num_classes=2)
     elif args.model == 'gcnfn':
+        if GCNFN is None:
+            raise ImportError("GCNFN is unavailable. Check src.models.baselines.gcnfn dependencies.")
         model = GCNFN(num_features=text_dim, hidden_dim=args.hidden_dim, num_classes=2)
-    elif args.model == 'gnn':
-        model = GNN(in_channels=text_dim, num_classes=2, nhid=args.hidden_dim)
+    elif args.model in ['gnn', 'gat', 'sage', 'gcn']:
+        if GNN is None:
+            raise ImportError("GNN/GAT/SAGE/GCN baseline is unavailable. Check src.models.baselines.gnn dependencies.")
+        model_type = 'sage' if args.model == 'gnn' else args.model
+        model = GNN(in_channels=text_dim, nhid=args.hidden_dim, num_classes=2, model_type=model_type)
     elif args.model == 'gnncl':
+        if GNNCLNet is None:
+            raise ImportError("GNNCL is unavailable. Check src.models.baselines.gnncl dependencies.")
         model = GNNCLNet(in_channels=text_dim, num_classes=2, nhid=args.hidden_dim)
     else:
         raise NotImplementedError(f"Model initialization for {args.model} is not yet hooked up.")
