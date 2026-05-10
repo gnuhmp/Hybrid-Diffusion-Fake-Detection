@@ -11,12 +11,8 @@ from torch.utils.data import random_split
 from torch_geometric.data import DataLoader, DataListLoader
 
 
-try:
-	from src.utils.data_loader import *
-	from src.utils.eval_helper import *
-except ImportError:
-	from utils.data_loader import *
-	from utils.eval_helper import *
+from utils.data_loader import *
+from utils.eval_helper import *
 
 
 """
@@ -130,7 +126,7 @@ if __name__ == '__main__':
 	val_loader = loader(validation_set, batch_size=args.batch_size, shuffle=False)
 	test_loader = loader(test_set, batch_size=args.batch_size, shuffle=False)
 
-	model = Model(args, concat=args.concat)
+	model = Model(args.num_features, args.nhid, args.num_classes, args.model, args.concat, args.dropout_ratio)
 	if args.multi_gpu:
 		model = DataParallel(model)
 	model = model.to(args.device)
