@@ -86,6 +86,8 @@ class HyDFakeModel(nn.Module):
                 - edge_index: Edge indices (2, num_edges)
                 - batch: Batch indices (num_nodes,)
                 - text_x: Text embeddings (batch_size, text_frozen_dim)
+                - root_index: Local index of the root node for each graph
+                - ptr: Pointer to the start of each graph in the batch
         
         Returns:
             logits: Classification logits (batch_size, 2)
@@ -105,8 +107,16 @@ class HyDFakeModel(nn.Module):
         # ============= ENDOGENOUS PREFERENCE =============
         endogenous_context = None
         if self.mode == 'graph_text' and hasattr(data, 'text_x'):
-            # Pool text embeddings to graph level (node_level → graph_level)
-            text_graph_level = global_mean_pool(data.text_x, data.batch)  # (batch_size, text_dim)
+            
+            if hasattr(data, 'root_index'):
+                # PyG AUTOMATICALLY adds the batch offset to any attribute named "*index*".
+                # Therefore, data.root_index already contains the EXACT global indices!
+                text_graph_level = data.text_x[data.root_index]  # (batch_size, text_dim)
+            else:
+                # Fallback: Assume the first node of each graph in the batch is the root
+                _, first_node_indices = torch.unique(data.batch, return_inverse=False)
+                text_graph_level = data.text_x[first_node_indices]
+                
             # Learn text representations from frozen embeddings
             endogenous_context, pref_weights = self.endogenous_encoder(text_graph_level)
             # (batch_size, hidden_dim), (batch_size, hidden_dim)

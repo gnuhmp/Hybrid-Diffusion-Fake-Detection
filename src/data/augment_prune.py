@@ -122,7 +122,7 @@ class GraphAugmentor:
                     virality[i] = (out_degree[i] + 1) * (d / max_depth)
         
         # 4. Early propagation flag (depth <= 3)
-        early_prop = (depths <= 5).float()
+        early_prop = (depths <= 3).float()
         early_prop[depths < 0] = 0
         
         # 5-7. Degree centrality (normalized out_degree)
