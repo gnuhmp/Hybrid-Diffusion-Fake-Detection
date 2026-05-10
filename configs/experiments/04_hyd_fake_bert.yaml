@@ -1,9 +1,9 @@
-# HyD-Fake full model — SBERT text features
+# HyD-Fake full model — BERT text features (768-d)
 type: hyd_fake
-description: HyDFakeModel with augmentation on Politifact + SBERT
+description: HyDFakeModel on Politifact + BERT embeddings
 
 dataset: politifact
-encoder: sbert
+encoder: bert
 
 raw_dir: data/raw
 interim_dir: data/interim
