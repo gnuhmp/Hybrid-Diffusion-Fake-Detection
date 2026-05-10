@@ -5,6 +5,8 @@ env/
 
 # Data và outputs
 outputs/
+results/
+checkpoints/
 *.npz
 *.npy
 *.pt
