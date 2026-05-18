@@ -9,7 +9,7 @@ raw_dir: data/raw
 interim_dir: data/interim
 output_dir: outputs/hyd_fake
 
-epochs: 120
+epochs: 72
 batch_size: 16
 hidden_dim: 256
 lr: 0.001

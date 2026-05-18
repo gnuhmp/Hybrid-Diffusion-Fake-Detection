@@ -29,7 +29,8 @@ class HyDFakeModel(nn.Module):
     """
     
     def __init__(self, text_frozen_dim=384, graph_in_dim=11, hidden_dim=256, 
-                 dropout=0.3, mode='graph_text', num_gat_layers=4, edge_prune_threshold=0.05):
+                 dropout=0.3, mode='graph_text', num_gat_layers=4, edge_prune_threshold=0.05,
+                 text_encoder_name=None):
         super().__init__()
         
         self.text_frozen_dim = text_frozen_dim
@@ -39,6 +40,7 @@ class HyDFakeModel(nn.Module):
         self.mode = mode
         self.num_gat_layers = num_gat_layers
         self.edge_prune_threshold = edge_prune_threshold
+        self.text_encoder_name = text_encoder_name
         
         # ============= EXOGENOUS CONTEXT ENCODER =============
         # Multi-layer GNN for user engagement and social influence
@@ -58,6 +60,7 @@ class HyDFakeModel(nn.Module):
                 text_dim=text_frozen_dim,
                 hidden_dim=hidden_dim,
                 dropout=dropout,
+                encoder_name=text_encoder_name,
             )
         
         # ============= MULTI-MODAL FUSION =============

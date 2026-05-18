@@ -67,7 +67,7 @@ def main():
                         help='Output directory for models and results (will auto-create dataset subfolders)')
     
     # Training hyperparameters
-    parser.add_argument('--epochs', type=int, default=120, 
+    parser.add_argument('--epochs', type=int, default=72, 
                         help='Maximum training epochs')
     parser.add_argument('--batch_size', type=int, default=16, 
                         help='Batch size')
@@ -196,6 +196,7 @@ def main():
         mode='graph_text',
         num_gat_layers=args.num_gat_layers,
         edge_prune_threshold=args.edge_prune_threshold,
+        text_encoder_name=args.encoder,
     )
     
     model = model.to(device)

@@ -202,12 +202,22 @@ class EndogenousPreferenceEncoder(nn.Module):
     Implements deep text representation learning instead of frozen embeddings.
     """
     
-    def __init__(self, text_dim=384, hidden_dim=256, dropout=0.3):
+    def __init__(self, text_dim=384, hidden_dim=256, dropout=0.3, encoder_name=None):
         super().__init__()
         
         self.text_dim = text_dim
         self.hidden_dim = hidden_dim
         self.dropout = dropout
+        self.encoder_name = encoder_name or ('bert' if text_dim >= 768 else 'sbert')
+        self.is_bert = self.encoder_name == 'bert'
+        # Apply lightweight regularization only for BERT to reduce overfitting.
+        self.input_norm = nn.LayerNorm(text_dim) if self.is_bert else None
+        self.feature_dropout = nn.Dropout1d(p=0.05) if self.is_bert else None
+        self.text_skip_proj = nn.Linear(text_dim, hidden_dim) if self.is_bert else None
+        self.text_skip_gate = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.Sigmoid(),
+        ) if self.is_bert else None
         
         # Multi-layer text encoder with batch normalization
         self.text_encoder = nn.Sequential(
@@ -252,11 +262,24 @@ class EndogenousPreferenceEncoder(nn.Module):
             news_textual_emb: Learned news textual embedding
             pref_weights: User preference weights
         """
+        if self.input_norm is not None:
+            text_emb = self.input_norm(text_emb)
+        if self.is_bert:
+            text_emb = F.normalize(text_emb, p=2, dim=1)
+        if self.feature_dropout is not None:
+            text_emb = self.feature_dropout(text_emb)
         # Initial text representation learning
         learned_text = self.text_encoder(text_emb)  # (batch_size, hidden_dim)
+        if self.is_bert and self.text_skip_proj is not None:
+            raw_proj = self.text_skip_proj(text_emb)
+            gate = self.text_skip_gate(raw_proj)
+            learned_text = gate * learned_text + (1.0 - gate) * raw_proj
         
         # Learn user preference weights
         pref_weights = self.preference_weight(learned_text)  # (batch_size, hidden_dim)
+        if self.is_bert:
+            # Avoid over-suppressing BERT features by keeping weights in [0.5, 1.0].
+            pref_weights = 0.5 + 0.5 * pref_weights
         
         # Apply preference weighting
         weighted_text = learned_text * pref_weights
