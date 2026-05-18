@@ -135,7 +135,18 @@ def train_epoch(model, train_loader, criterion, optimizer, device, scaler=None, 
     return avg_loss
 
 
-def evaluate(model, eval_loader, criterion, device, find_best_threshold=False):
+def evaluate(
+    model,
+    eval_loader,
+    criterion,
+    device,
+    find_best_threshold=False,
+    fixed_threshold=None,
+    num_thresholds=100,
+    optimize_metric='f1',
+    min_threshold=0.1,
+    max_threshold=0.9,
+):
     """
     Evaluate model on validation/test set.
     
@@ -144,8 +155,13 @@ def evaluate(model, eval_loader, criterion, device, find_best_threshold=False):
         eval_loader: Evaluation data loader
         criterion: Loss function
         device: Device (cuda/cpu)
-        find_best_threshold: If True, search for the threshold that maximizes F1.
-                             Should be True during Validation, False during Testing.
+        find_best_threshold: If True, search for the threshold that maximizes specified metric.
+                     Should be True during Validation, False during Testing.
+        fixed_threshold: Optional fixed decision threshold for class 1.
+        num_thresholds: Number of thresholds to try during threshold search (default 100).
+        optimize_metric: Metric to optimize ('f1', 'f2', 'f05', 'accuracy', 'balanced') (default 'f1').
+        min_threshold: Minimum threshold for search range (default 0.1).
+        max_threshold: Maximum threshold for search range (default 0.9).
     
     Returns:
         dict with metrics and the best threshold found (or default 0.5).
@@ -176,17 +192,42 @@ def evaluate(model, eval_loader, criterion, device, find_best_threshold=False):
     auc = roc_auc_score(all_labels, all_probs)
     
     best_threshold = 0.5
-    best_f1 = 0.0
+    best_score = 0.0
     
-    # Logic tìm ngưỡng tối ưu (Chỉ chạy trên tập Validation)
-    if find_best_threshold:
-        # Thử nghiệm 100 ngưỡng từ 0.01 đến 0.99
-        thresholds = np.linspace(0.01, 0.99, 100)
+    # Helper function to calculate F-beta score
+    def fbeta_score(y_true, y_pred, beta=1.0):
+        prec = precision_score(y_true, y_pred, zero_division=0)
+        rec = recall_score(y_true, y_pred, zero_division=0)
+        if prec + rec == 0:
+            return 0.0
+        return (1 + beta**2) * (prec * rec) / ((beta**2 * prec) + rec)
+    
+    # Logic to find optimal threshold with constraints
+    if fixed_threshold is not None:
+        best_threshold = float(fixed_threshold)
+    elif find_best_threshold:
+        # Constrained threshold search
+        thresholds = np.linspace(min_threshold, max_threshold, num_thresholds)
+        
         for t in thresholds:
             preds = (all_probs >= t).astype(int)
-            f1 = f1_score(all_labels, preds, zero_division=0)
-            if f1 > best_f1:
-                best_f1 = f1
+            
+            if optimize_metric == 'f1':
+                score = f1_score(all_labels, preds, zero_division=0)
+            elif optimize_metric == 'f2':
+                score = fbeta_score(all_labels, preds, beta=2.0)
+            elif optimize_metric == 'f05':
+                score = fbeta_score(all_labels, preds, beta=0.5)
+            elif optimize_metric == 'accuracy':
+                score = accuracy_score(all_labels, preds)
+            elif optimize_metric == 'balanced':
+                # Balance precision and recall equally (same as F1 but more explicit)
+                score = f1_score(all_labels, preds, zero_division=0)
+            else:
+                score = f1_score(all_labels, preds, zero_division=0)
+            
+            if score > best_score:
+                best_score = score
                 best_threshold = t
     
     # Tính toán kết quả cuối cùng với ngưỡng (best_threshold hoặc 0.5)
@@ -208,8 +249,23 @@ def evaluate(model, eval_loader, criterion, device, find_best_threshold=False):
     }
 
 
-def train_full_pipeline(model, train_loader, val_loader, test_loader, criterion, 
-                       optimizer, device, epochs=80, patience=20, use_mixed_precision=True, scheduler=None, output_dir=None):
+def train_full_pipeline(
+    model,
+    train_loader,
+    val_loader,
+    test_loader,
+    criterion,
+    optimizer,
+    device,
+    epochs=80,
+    patience=20,
+    use_mixed_precision=True,
+    scheduler=None,
+    output_dir=None,
+    tune_threshold=False,
+    optimize_metric='f1',
+    decision_threshold=0.5,
+):
     """
     Complete training pipeline with early stopping, best model selection, and learning rate scheduling.
     
@@ -225,6 +281,8 @@ def train_full_pipeline(model, train_loader, val_loader, test_loader, criterion,
         patience: Early stopping patience (# of epochs without improvement)
         use_mixed_precision: Use torch.amp for mixed precision (CUDA only)
         scheduler: Learning rate scheduler (optional, steps per batch)
+        optimize_metric: Metric to optimize during threshold search ('f1', 'f2', etc.)
+        decision_threshold: Fixed decision threshold for class 1 predictions (default 0.5)
     
     Returns:
         (best_model, test_metrics)
@@ -243,12 +301,29 @@ def train_full_pipeline(model, train_loader, val_loader, test_loader, criterion,
     print(f"Device: {device}")
     print(f"Mixed precision: {use_mixed_precision and device.type == 'cuda'}")
     print(f"Total parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
+    print(f"Decision threshold: {decision_threshold}")
     print("-" * 80)
+    best_threshold = decision_threshold
+
     for epoch in range(1, epochs + 1):
         train_loss = train_epoch(model, train_loader, criterion, optimizer, device, scaler, scheduler)
-        val_metrics = evaluate(model, val_loader, criterion, device)
+        val_metrics = evaluate(
+            model,
+            val_loader,
+            criterion,
+            device,
+            fixed_threshold=decision_threshold,
+            find_best_threshold=False,
+        )
         val_f1 = val_metrics['f1']
-        test_metrics = evaluate(model, test_loader, criterion, device)
+        
+        test_metrics = evaluate(
+            model,
+            test_loader,
+            criterion,
+            device,
+            fixed_threshold=decision_threshold,
+        )
         
         print(f"Epoch {epoch:3d} | Train Loss: {train_loss:.4f} | Val F1: {val_f1:.4f} | Test Acc: {test_metrics['accuracy']:.4f}")
         
@@ -273,16 +348,28 @@ def train_full_pipeline(model, train_loader, val_loader, test_loader, criterion,
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
     
-    return model, evaluate(model, test_loader, criterion, device)
-    print("-" * 80)
-    print(f"Final Test Metrics:")
-    print(f"  Accuracy:  {test_metrics['accuracy']:.4f}")
-    print(f"  Precision: {test_metrics['precision']:.4f}")
-    print(f"  Recall:    {test_metrics['recall']:.4f}")
-    print(f"  F1:        {test_metrics['f1']:.4f}")
-    print(f"  AUC:       {test_metrics['auc']:.4f}")
+    # Final test evaluation using the best threshold from validation
+    final_test_metrics = evaluate(
+        model,
+        test_loader,
+        criterion,
+        device,
+        fixed_threshold=best_threshold if tune_threshold else None,
+        num_thresholds=100,
+        optimize_metric='f1',
+        min_threshold=0.01,
+        max_threshold=0.99,
+    )
     
-    return model, test_metrics
+    print("-" * 80)
+    print(f"Final Test Metrics (threshold={best_threshold:.3f}):")
+    print(f"  Accuracy:  {final_test_metrics['accuracy']:.4f}")
+    print(f"  Precision: {final_test_metrics['precision']:.4f}")
+    print(f"  Recall:    {final_test_metrics['recall']:.4f}")
+    print(f"  F1:        {final_test_metrics['f1']:.4f}")
+    print(f"  AUC:       {final_test_metrics['auc']:.4f}")
+    
+    return model, final_test_metrics
 
 
 def build_optimizer(model, lr=1e-3, weight_decay=1e-4):

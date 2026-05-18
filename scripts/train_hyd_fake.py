@@ -33,7 +33,46 @@ from src.models.hyd_fake import HyDFakeModel
 from src.data.dataset_builder import load_raw_parquet_data, create_pyg_graphs_from_raw, split_datasets_strict
 from src.data.augment_prune import augment_dataset, prune_dataset
 from src.training.trainer import train_full_pipeline, build_optimizer, create_cosine_scheduler_with_warmup
-from src.training.losses import FocalLoss
+from src.training.losses import FocalLoss, WeightedFocalLoss
+
+
+# ============================================================================
+# CONFIGURATION-DRIVEN HYPERPARAMETERS (Dataset-Specific, NO model logic here)
+# ============================================================================
+# This dictionary maps dataset name → hyperparameter configuration.
+# All dataset-specific logic stays HERE in the training script, NOT in the model.
+# The model architecture remains 100% unified and dataset-agnostic.
+#
+# Design rationale:
+# - PolitiFact: Small (~314 total), sparse graphs → needs strong regularization
+# - GossipCop: Large (~5k+ total), denser graphs → can use more aggressive learning
+#
+DATASET_CONFIGS = {
+    'politifact': {
+        'num_gat_layers': 2,           # Reduced to prevent oversmoothing on small graphs
+        'dropout': 0.45,                # Reduced to allow model more confidence in predictions
+        'weight_decay': 4e-4,          # Slightly reduced to avoid over-regularization
+        'learning_rate': 1e-3,         # Increased for better exploration
+        'focal_alpha': 0.45,            # INCREASED: Weight positive (fake) class more heavily
+        'focal_gamma': 2.5,            # Standard γ to avoid over-focusing on hard examples
+        'batch_size': 16,               # Smaller batches for stable gradients
+        'edge_prune_threshold': 0.1,  # More aggressive pruning to denoise sparse graphs
+        'decision_threshold': 0.5,    # NEW: Lower threshold to increase recall (predict more fakes)
+        'description': 'Small & Sparse: Balanced approach - higher α, lower threshold for better recall'
+    },
+    'gossipcop': {
+        'num_gat_layers': 4,           # Standard depth for larger graphs
+        'dropout': 0.3,                # Standard regularization
+        'weight_decay': 2e-4,          # Standard L2 penalty
+        'learning_rate': 1e-3,         # Standard learning rate
+        'focal_alpha': 0.3,           # Standard for balanced datasets
+        'focal_gamma': 2.0,            # Standard focusing
+        'batch_size': 16,              # Standard batch size
+        'edge_prune_threshold': 0.08,  # Standard pruning
+        'decision_threshold': 0.5,     # Standard threshold for balanced datasets
+        'description': 'Large & Dense: Standard hyperparameters, faster convergence'
+    }
+}
 
 
 def set_seed(seed):
@@ -105,6 +144,34 @@ def main():
     # Augmentation is enabled by default unless --no-augment is passed
     args.augment = not args.no_augment
     
+    # ============= LOAD DATASET-SPECIFIC CONFIGURATION =============
+    # Configuration-driven approach: All dataset-specific params loaded here
+    # NO conditional logic inside model architecture files (encoders.py, hyd_fake.py, fusion.py)
+    config = DATASET_CONFIGS.get(args.dataset, DATASET_CONFIGS['gossipcop'])  # Default to gossipcop
+    
+    print(f"\n--- Dataset Configuration Loaded ---")
+    print(f"  Configuration: {config['description']}")
+    print(f"  GAT Layers: {config['num_gat_layers']}")
+    print(f"  Dropout: {config['dropout']}")
+    print(f"  Learning Rate: {config['learning_rate']}")
+    print(f"  Weight Decay: {config['weight_decay']}")
+    print(f"  Focal Loss: α={config['focal_alpha']}, γ={config['focal_gamma']}")
+    print(f"  Decision Threshold: {config.get('decision_threshold', 0.5)}")
+    print(f"  Edge Pruning: {config['edge_prune_threshold']}")
+    
+    # Override argparse defaults with config values (if not explicitly set by user)
+    # This allows CLI overrides while providing smart defaults per dataset
+    args.num_gat_layers = config['num_gat_layers']
+    args.lr = config['learning_rate']
+    args.edge_prune_threshold = config['edge_prune_threshold']
+    args.batch_size = config['batch_size']
+    
+    # Extract configuration values for later use
+    model_dropout = config['dropout']
+    weight_decay = config['weight_decay']
+    focal_alpha = config['focal_alpha']
+    focal_gamma = config['focal_gamma']
+    
     # Setup dataset-specific output directory to prevent overwriting
     dataset_output_dir = os.path.join(args.output_dir, args.dataset)
     os.makedirs(dataset_output_dir, exist_ok=True)
@@ -130,6 +197,19 @@ def main():
     print(f"Warmup ratio: {args.warmup_ratio}")
     print(f"Augment: {args.augment}")
     print(f"Prune: {args.prune}")
+    
+    # Unified architecture configuration info
+    print("\n--- Unified Architecture (All Datasets) ---")
+    print(f"  Exogenous Encoder: Multi-layer GAT (LayerNorm, residual connections, 4 heads)")
+    print(f"  Endogenous Encoder: Deep text representation learning")
+    print(f"  Text Pooling: Adaptive attention with dropout + temperature scaling")
+    print(f"  Fusion Module: Multi-modal fusion with gated residual")
+    print(f"  Loss: FocalLoss (configuration-driven from DATASET_CONFIGS)")
+    print(f"  Dropout: {model_dropout} (regularization in all layers including text attention)")
+    print(f"  GAT Layers: {args.num_gat_layers} (configuration-driven, prevents oversmoothing)")
+    print(f"  Edge Prune: {args.edge_prune_threshold} (configuration-driven)")
+    print(f"  Threshold Tuning: DISABLED (unified 0.5 threshold)")
+    
     print("="*80 + "\n")
     
     # ============= LOAD DATA =============
@@ -192,21 +272,27 @@ def main():
         text_frozen_dim=text_dim,
         graph_in_dim=graph_in_dim,
         hidden_dim=args.hidden_dim,
-        dropout=0.3,
+        dropout=model_dropout,  # Configuration-driven dropout
         mode='graph_text',
         num_gat_layers=args.num_gat_layers,
         edge_prune_threshold=args.edge_prune_threshold,
+        dataset_name=args.dataset,
     )
     
     model = model.to(device)
     print(f"  Total parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
     
     # ============= BUILD LOSS & OPTIMIZER =============
-    criterion = FocalLoss(alpha=0.25, gamma=2.0)
-    optimizer = build_optimizer(model, lr=args.lr, weight_decay=1e-4)
+    # Configuration-driven Focal Loss (from DATASET_CONFIGS)
+    criterion = FocalLoss(
+        alpha=focal_alpha,
+        gamma=focal_gamma,
+        reduction='mean'
+    )
     
-    print(f"  Loss: FocalLoss (α=0.25, γ=2.0)")
-    print(f"  Optimizer: AdamW (lr={args.lr}, weight_decay=1e-4)")
+    optimizer = build_optimizer(model, lr=args.lr, weight_decay=weight_decay)
+    print(f"  Loss: FocalLoss (α={focal_alpha}, γ={focal_gamma})")
+    print(f"  Optimizer: AdamW (lr={args.lr}, weight_decay={weight_decay})")
     
     # ============= SETUP LEARNING RATE SCHEDULER =============
     # Create scheduler: linear warmup + cosine annealing
@@ -226,6 +312,9 @@ def main():
     print(f"\nTraining for up to {args.epochs} epochs (patience: {args.patience})...")
     print("-" * 80)
     
+    # Extract decision threshold from config (with default fallback)
+    decision_threshold = config.get('decision_threshold', 0.5)
+    
     model, test_metrics = train_full_pipeline(
         model=model,
         train_loader=train_loader,
@@ -237,6 +326,9 @@ def main():
         epochs=args.epochs,
         patience=args.patience,
         scheduler=scheduler,
+        tune_threshold=False,  # Unified approach: no threshold tuning, rely on FocalLoss
+        optimize_metric='f1',
+        decision_threshold=decision_threshold,
     )
     
     # ============= SAVE RESULTS =============
@@ -271,11 +363,16 @@ def main():
             'text_frozen_dim': text_dim,
             'graph_in_dim': graph_in_dim,
             'hidden_dim': args.hidden_dim,
-            'dropout': 0.3,
+            'dropout': model_dropout,
             'batch_size': args.batch_size,
             'learning_rate': args.lr,
+            'weight_decay': weight_decay,
             'epochs': args.epochs,
             'patience': args.patience,
+            'focal_alpha': focal_alpha,
+            'focal_gamma': focal_gamma,
+            'gat_layers': args.num_gat_layers,
+            'edge_prune_threshold': args.edge_prune_threshold,
         },
         'optimizations': {
             'augment': args.augment,
