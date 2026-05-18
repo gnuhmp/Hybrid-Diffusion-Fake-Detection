@@ -5,7 +5,10 @@ from math import ceil
 
 import torch
 import torch.nn.functional as F
-from torch_geometric.data import DenseDataLoader
+try:
+    from torch_geometric.loader import DenseDataLoader
+except ImportError:
+    from torch_geometric.data import DenseDataLoader
 import torch_geometric.transforms as T
 from torch_geometric.nn import DenseSAGEConv, dense_diff_pool
 from torch.utils.data import random_split
