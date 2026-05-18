@@ -306,49 +306,83 @@ class EnhancedNewsClassifier(nn.Module):
             logits: Classification logits (batch_size, 2)
         """
         return self.classifier(fused_emb)
-    
 class MultiModalFusion(nn.Module):
+    """Attention-based fusion with learnable gating and residual connections.
+
+    Fuses endogenous (text) and exogenous (graph) context representations
+    using learned attention weights. This module dynamically balances the
+    importance of text features and social structure through a gating mechanism.
+
+    Args:
+        hidden_dim (int): Hidden representation dimension. Default: 256.
+        dropout (float): Dropout probability for regularization. Default: 0.5.
+
+    Shape:
+        - Input: endogenous_emb (batch_size, hidden_dim),
+                 exogenous_emb (batch_size, hidden_dim)
+        - Output: (batch_size, hidden_dim)
     """
-    True Attention-based fusion of endogenous (text) and exogenous (graph) contexts.
-    Learns dynamic weights to balance the importance of text vs. social structure.
-    """
-    
-    def __init__(self, hidden_dim=256, dropout=0.5): # Tăng dropout để chống overfit
+
+    def __init__(self, hidden_dim=256, dropout=0.5):
         super().__init__()
         self.hidden_dim = hidden_dim
-        
-        # Attention network để tính trọng số (0 -> 1) cho Text và Graph
+
+        # Learnable gating network: computes normalized attention weights
         self.attention = nn.Sequential(
             nn.Linear(hidden_dim * 2, hidden_dim // 2),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 2, 2), # Output 2 giá trị tương ứng cho Text và Graph
-            nn.Softmax(dim=-1)             # Đảm bảo tổng 2 trọng số = 1
+            nn.Linear(hidden_dim // 2, 2),
+            nn.Softmax(dim=-1),
         )
-        
-        # Lớp tinh chỉnh sau khi đã mix
+
+        # Refinement layer: projects fused representation for downstream tasks
         self.project = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
-            nn.Dropout(dropout)
+            nn.Dropout(dropout),
         )
-        
+
     def forward(self, endogenous_emb, exogenous_emb):
-        # Nối lại để tính toán mức độ quan trọng
+        """Fuse endogenous and exogenous embeddings with attention gating and residual.
+
+        Args:
+            endogenous_emb (torch.Tensor): Text representation of shape
+                (batch_size, hidden_dim).
+            exogenous_emb (torch.Tensor): Graph representation of shape
+                (batch_size, hidden_dim).
+
+        Returns:
+            torch.Tensor: Fused representation of shape (batch_size, hidden_dim).
+        """
+        # Concatenate embeddings for joint processing
         combined = torch.cat([endogenous_emb, exogenous_emb], dim=-1)
-        
-        # Tính attention weights (batch_size, 2)
+
+        # Compute normalized attention weights via gating mechanism
         attn_weights = self.attention(combined)
-        
-        # Tách trọng số ra
-        w_text = attn_weights[:, 0].unsqueeze(1)  # (batch_size, 1)
-        w_graph = attn_weights[:, 1].unsqueeze(1) # (batch_size, 1)
-        
-        # Mix 2 luồng đặc trưng theo trọng số đã học
+
+        # Extract per-modality weights: shape (batch_size, 1)
+        w_text = attn_weights[:, 0].unsqueeze(1)
+        w_graph = attn_weights[:, 1].unsqueeze(1)
+
+        # Fuse embeddings: weighted combination of both modalities
         fused_emb = (w_text * endogenous_emb) + (w_graph * exogenous_emb)
-        
+
+        # Restore gated residual fusion: add graph structure signal
+        fused_emb = fused_emb + exogenous_emb
+
+        # Refine fused representation via projection layer
         return self.project(fused_emb)
-    
+
     def gate(self, combined_features):
+        """Compute gating weights from combined features.
+
+        Args:
+            combined_features (torch.Tensor): Concatenated embeddings of shape
+                (batch_size, hidden_dim * 2).
+
+        Returns:
+            torch.Tensor: Attention weights of shape (batch_size, 2).
+        """
         return self.attention(combined_features)

@@ -106,23 +106,40 @@ class GraphAugmentor:
             depth_norm = depth_norm / max_depth
         depth_norm[depths < 0] = 0  # unreachable nodes
         
-        # 2. Breadth rank (percentile at same depth)
+        # 2. Breadth rank (percentile at same depth) - IMPROVED for PolitiFact
         breadth_rank = torch.zeros(num_nodes, dtype=torch.float32)
+        depth_nodes = {}  # nodes grouped by depth
         for i, d in enumerate(depths):
             if d >= 0:
-                breadth_at_depth[int(d)] = max(1, breadth_at_depth.get(int(d), 1))
-                # Assign percentile within depth level
-                breadth_rank[i] = 0.5  # placeholder
+                d_int = int(d)
+                if d_int not in depth_nodes:
+                    depth_nodes[d_int] = []
+                depth_nodes[d_int].append((i, out_degree[i].item()))
         
-        # 3. Structural virality
+        # Compute actual percentile ranks
+        for d, nodes in depth_nodes.items():
+            if len(nodes) > 0:
+                # Sort by out_degree descending
+                nodes_sorted = sorted(nodes, key=lambda x: x[1], reverse=True)
+                for rank, (node_id, _) in enumerate(nodes_sorted):
+                    breadth_rank[node_id] = rank / max(1, len(nodes) - 1)
+        
+        # 3. Structural virality - ENHANCED with in_degree weighting
         virality = torch.zeros(num_nodes, dtype=torch.float32)
         if max_depth > 0:
+            in_degree = torch.zeros(num_nodes, dtype=torch.float32)
+            if edge_index.numel() > 0:
+                dst_list = edge_index[1].tolist()
+                for dst in dst_list:
+                    in_degree[dst] += 1
+            
             for i, d in enumerate(depths):
                 if d >= 0:
-                    virality[i] = (out_degree[i] + 1) * (d / max_depth)
+                    # Virality: (out_degree + in_degree) * (depth_ratio)
+                    virality[i] = (out_degree[i] * 0.7 + in_degree[i] * 0.3) * (d / max_depth)
         
-        # 4. Early propagation flag (depth <= 3)
-        early_prop = (depths <= 5).float()
+        # 4. Early propagation flag (depth <= 2 for PolitiFact) - more aggressive
+        early_prop = (depths <= 2).float()
         early_prop[depths < 0] = 0
         
         # 5-7. Degree centrality (normalized out_degree)
@@ -132,11 +149,31 @@ class GraphAugmentor:
         # 8. Leaf flag (out_degree == 0)
         is_leaf = (out_degree == 0).float()
         
-        # 9. Clustering coefficient (simplified: local clustering at each node)
+        # 9. Clustering coefficient - IMPROVED: use actual neighbor connections
         clustering_coeff = torch.zeros(num_nodes, dtype=torch.float32)
-        # Simplified: just use out_degree as proxy for local clustering
-        if max_out_degree > 0:
-            clustering_coeff = (out_degree / max_out_degree) * 0.5  # Bounded by 0.5
+        if edge_index.numel() > 0:
+            # Build adjacency for clustering coefficient calculation
+            adj = [set() for _ in range(num_nodes)]
+            src_list = edge_index[0].tolist()
+            dst_list = edge_index[1].tolist()
+            for src, dst in zip(src_list, dst_list):
+                adj[src].add(dst)
+                adj[dst].add(src)  # Treat as undirected for clustering
+            
+            # Compute clustering coefficient
+            for i in range(num_nodes):
+                neighbors = list(adj[i])
+                if len(neighbors) > 1:
+                    # Count edges between neighbors
+                    edges_between = 0
+                    for j in range(len(neighbors)):
+                        for k in range(j + 1, len(neighbors)):
+                            if neighbors[k] in adj[neighbors[j]]:
+                                edges_between += 1
+                    max_edges = len(neighbors) * (len(neighbors) - 1) / 2
+                    clustering_coeff[i] = edges_between / max_edges if max_edges > 0 else 0
+                else:
+                    clustering_coeff[i] = 0
         
         # Stack all features: original (3D) + new (8D) = 11D
         augmented_x = torch.cat([
