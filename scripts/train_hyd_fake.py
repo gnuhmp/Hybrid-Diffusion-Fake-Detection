@@ -63,12 +63,12 @@ DATASET_CONFIGS = {
     'gossipcop': {
         'num_gat_layers': 4,           # Standard depth for larger graphs
         'dropout': 0.3,                # Standard regularization
-        'weight_decay': 2e-4,          # Standard L2 penalty
+        'weight_decay': 1e-4,          # Standard L2 penalty
         'learning_rate': 1e-3,         # Standard learning rate
-        'focal_alpha': 0.3,           # Standard for balanced datasets
+        'focal_alpha': 0.5,           # Standard for balanced datasets
         'focal_gamma': 2.0,            # Standard focusing
         'batch_size': 16,              # Standard batch size
-        'edge_prune_threshold': 0.08,  # Standard pruning
+        'edge_prune_threshold': 0.1,  # Standard pruning
         'decision_threshold': 0.5,     # Standard threshold for balanced datasets
         'description': 'Large & Dense: Standard hyperparameters, faster convergence'
     }
@@ -172,8 +172,9 @@ def main():
     focal_alpha = config['focal_alpha']
     focal_gamma = config['focal_gamma']
     
-    # Setup dataset-specific output directory to prevent overwriting
-    dataset_output_dir = os.path.join(args.output_dir, args.dataset)
+    # Setup encoder-specific and dataset-specific output directory to prevent overwriting
+    # Separate results for SBERT and BERT embeddings
+    dataset_output_dir = os.path.join(args.output_dir, f'hyd_fake_{args.encoder}', args.dataset)
     os.makedirs(dataset_output_dir, exist_ok=True)
     
     # Setup

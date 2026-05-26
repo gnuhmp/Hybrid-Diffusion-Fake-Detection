@@ -99,6 +99,12 @@ def main():
         model = GNN(in_channels=text_dim, num_classes=2, nhid=args.hidden_dim)
     elif args.model == 'gnncl':
         model = GNNCLNet(in_channels=text_dim, num_classes=2, nhid=args.hidden_dim)
+    elif args.model == 'gat':
+        model = GNN(in_channels=text_dim, nhid=args.hidden_dim, num_classes=2, model_type='gat')
+    elif args.model == 'gcn':
+        model = GNN(in_channels=text_dim, nhid=args.hidden_dim, num_classes=2, model_type='gcn')
+    elif args.model == 'sage':
+        model = GNN(in_channels=text_dim, nhid=args.hidden_dim, num_classes=2, model_type='sage')
     else:
         raise NotImplementedError(f"Model initialization for {args.model} is not yet hooked up.")
         
