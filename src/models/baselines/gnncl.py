@@ -35,7 +35,6 @@ Link: https://arxiv.org/pdf/2007.03316.pdf
 
 
 class GNN(torch.nn.Module):
-    # Giữ nguyên cấu trúc GNN của tác giả
     def __init__(self, in_channels, hidden_channels, out_channels,
                  normalize=False, lin=True):
         super(GNN, self).__init__()
@@ -170,10 +169,11 @@ if __name__ == '__main__':
 	if args.dataset == 'politifact':
 		max_nodes = 500
 	else:
-		max_nodes = 200
+		max_nodes = 200 
+
 
 	dataset = FNNDataset(root='data', feature=args.feature, empty=False, name=args.dataset,
-					 transform=T.ToDense(max_nodes), pre_transform=ToUndirected())
+						 transform=T.ToDense(max_nodes), pre_transform=ToUndirected())
 
 	print(args)
 
@@ -185,6 +185,10 @@ if __name__ == '__main__':
 	train_loader = DenseDataLoader(training_set, batch_size=args.batch_size, shuffle=True)
 	val_loader = DenseDataLoader(validation_set, batch_size=args.batch_size, shuffle=False)
 	test_loader = DenseDataLoader(test_set, batch_size=args.batch_size, shuffle=False)
+
+	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+	model = GNNCLNet(in_channels=dataset.num_features, num_classes=dataset.num_classes).to(device)
+	optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 	model = GNNCLNet(in_channels=dataset.num_features, nhid=args.nhid, num_classes=dataset.num_classes).to(device)

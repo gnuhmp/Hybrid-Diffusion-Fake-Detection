@@ -1,6 +1,6 @@
 $datasets = @('politifact', 'gossipcop')
 $encoders = @('sbert', 'bert')
-$models = @('bigcn', 'gcnfn', 'gnn', 'gnncl', 'gcn', 'gat')
+$models = @('bigcn', 'gcnfn', 'gnn', 'gnncl', 'gcn', 'gat', 'sage')
 
 foreach ($dataset in $datasets) {
     foreach ($encoder in $encoders) {
