@@ -8,7 +8,9 @@ import copy as cp
 import torch
 from torch.utils.data import random_split
 try:
-    from torch_scatter import scatter_mean
+    from torch_scatter import scatter_mean as _scatter_mean_native
+    def scatter_mean(x, batch, dim=0):
+        return _scatter_mean_native(x, batch, dim=dim)
 except ImportError:
     from torch_geometric.nn import global_mean_pool as scatter_mean_fallback
     def scatter_mean(x, batch, dim=0):

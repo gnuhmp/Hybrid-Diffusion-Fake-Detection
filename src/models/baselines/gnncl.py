@@ -14,14 +14,15 @@ from torch_geometric.nn import DenseSAGEConv, dense_diff_pool
 from torch.utils.data import random_split
 
 try:
-    from src.utils.data_loader import *
-    from src.utils.eval_helper import *
+    from src.utils.eval_helper import eval_deep
 except ImportError:
-    try:
-        from utils.data_loader import *
-        from utils.eval_helper import *
-    except ImportError:
-        pass
+    from utils.eval_helper import eval_deep
+
+try:
+    from src.utils.data_loader import FNNDataset, ToUndirected
+except ImportError:
+    from utils.data_loader import FNNDataset, ToUndirected
+    from utils.eval_helper import eval_deep
 
 """
 
@@ -189,6 +190,9 @@ if __name__ == '__main__':
 	model = GNNCLNet(in_channels=dataset.num_features, num_classes=dataset.num_classes).to(device)
 	optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
+	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+	model = GNNCLNet(in_channels=dataset.num_features, nhid=args.nhid, num_classes=dataset.num_classes).to(device)
+	optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 	for epoch in tqdm(range(args.epochs)):
 		[acc_train, _, _, _, recall_train, auc_train, _], loss_train = train()

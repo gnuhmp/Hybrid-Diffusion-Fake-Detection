@@ -15,14 +15,14 @@ from torch_geometric.nn import DenseSAGEConv, dense_diff_pool
 from torch.utils.data import random_split
 
 try:
-    from src.utils.data_loader import *
-    from src.utils.eval_helper import *
+    from src.utils.eval_helper import eval_deep
 except ImportError:
-    try:
-        from utils.data_loader import *
-        from utils.eval_helper import *
-    except ImportError:
-        pass
+    from utils.eval_helper import eval_deep
+
+try:
+    from src.utils.data_loader import FNNDataset, ToUndirected
+except ImportError:
+    from utils.data_loader import FNNDataset, ToUndirected
 
 """
 The GNN-CL is implemented using DiffPool as the graph encoder and profile feature as the node feature 
@@ -31,7 +31,6 @@ Link: https://arxiv.org/pdf/2007.03316.pdf
 """
 
 class GNN(torch.nn.Module):
-    # Giữ nguyên cấu trúc GNN của tác giả
     def __init__(self, in_channels, hidden_channels, out_channels,
                  normalize=False, lin=True):
         super(GNN, self).__init__()
@@ -84,20 +83,23 @@ class GCNFN(torch.nn.Module):
         self.lin2 = torch.nn.Linear(64, num_classes)
 
     def forward(self, data):
-       
-        x, edge_index, batch = data.x, data.edge_index, data.batch
-        dense_x, mask = to_dense_batch(x, batch)
-        adj = to_dense_adj(edge_index, batch)
-
-        #
+        # Handle both sparse PyG Data objects and dense tensors
+        if hasattr(data, 'x'):
+            # Sparse input from PyG DataLoader - convert to dense format
+            x, edge_index, batch = data.x, data.edge_index, data.batch
+            dense_x, mask = to_dense_batch(x, batch)
+            adj = to_dense_adj(edge_index, batch)
+        else:
+            # Already dense input
+            dense_x, adj, mask = data
+        
+        # Apply GNN layers with DiffPool
         s = self.gnn1_pool(dense_x, adj, mask)
         x_emb = self.gnn1_embed(dense_x, adj, mask)
-
         x_emb, adj, l1, e1 = dense_diff_pool(x_emb, adj, s, mask)
 
         s = self.gnn2_pool(x_emb, adj)
         x_emb = self.gnn2_embed(x_emb, adj)
-
         x_emb, adj, l2, e2 = dense_diff_pool(x_emb, adj, s)
 
         x_emb = self.gnn3_embed(x_emb, adj)
@@ -170,7 +172,7 @@ if __name__ == '__main__':
     test_loader = DenseDataLoader(test_set, batch_size=args.batch_size, shuffle=False)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = GCNFN(in_channels=dataset.num_features, num_classes=dataset.num_classes, max_nodes=max_nodes).to(device)
+    model = GCNFN(num_features=dataset.num_features, hidden_dim=args.nhid, num_classes=dataset.num_classes, max_nodes=max_nodes).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     for epoch in tqdm(range(args.epochs)):

@@ -1,0 +1,17 @@
+# UPFD baseline — BERT embeddings (768-d)
+type: baseline
+description: BiGCN-style baseline on Politifact with BERT node features
+
+dataset: politifact
+encoder: bert
+model: bigcn
+
+raw_dir: data/raw
+interim_dir: data/interim
+output_dir: outputs
+
+epochs: 100
+batch_size: 128
+hidden_dim: 128
+lr: 0.001
+patience: 30
